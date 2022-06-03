@@ -108,7 +108,14 @@ enum {
 };
 
 // default timeout for a response in milliseconds
-#define OBD2_DEFAULT_TIMEOUT 2000
+#define OBD2_DEFAULT_TIMEOUT 3000
+
+// broadcast IDs
+#define OBD2_CAN11_BROADCAST_ID 0x7df
+#define OBD2_CAN11_RECEIVING_ID 0x7e8
+#define OBD2_CAN29_BROADCAST_ID 0x18db33f1
+#define OBD2_CAN29_RECEIVING_ID 0x18daf110
+
 
 class OBD2Class {
 public:
@@ -127,6 +134,8 @@ public:
   uint32_t pidReadRaw(uint8_t pid);
 
   String vinRead();
+  int vinReadP(char *vin, int len);
+
   String ecuNameRead();
 
   void setTimeout(unsigned long timeout);

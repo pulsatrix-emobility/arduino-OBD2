@@ -10,8 +10,10 @@
 #endif
 
 #include <CAN.h>
-
 #include "OBD2.h"
+
+#define LOGGING_TAG        "OBD2"
+
 
 const char PID_NAME_0x00[] PROGMEM = "PIDs supported [01 - 20]";
 const char PID_NAME_0x01[] PROGMEM = "Monitor status since DTCs cleared";
@@ -340,18 +342,26 @@ OBD2Class::~OBD2Class()
 int OBD2Class::begin()
 {
   if (!CAN.begin(500E3)) {
+    ESP_LOGE(LOGGING_TAG, "unable to start CAN Driver");
     return 0;
   }
+
+  ESP_LOGI(LOGGING_TAG, "CAN Driver installed");
 
   memset(_supportedPids, 0x00, sizeof(_supportedPids));
 
   // first try standard addressing
+  ESP_LOGW(LOGGING_TAG, "try 11bit"); 
+  
   _useExtendedAddressing = false;
-  CAN.filter(0x7e8);
+//  CAN.filter(OBD2_CAN11_RECEIVING_ID, (0x7e8 ^ 0x7ec)); // smart antwort von 0x7ec
+  CAN.filter(OBD2_CAN11_RECEIVING_ID, 0x0f);      // antwort von 0x7e8 bis 0x7ef erlauben
+
   if (!supportedPidsRead()) {
+    ESP_LOGW(LOGGING_TAG, "try 29bit");    
     // next try extended addressing
     _useExtendedAddressing = true;
-    CAN.filterExtended(0x18daf110);
+    CAN.filterExtended(OBD2_CAN29_RECEIVING_ID, 0);     // 0x18daf110
 
     if (!supportedPidsRead()) {
       return 0;
@@ -369,6 +379,8 @@ void OBD2Class::end()
 
 bool OBD2Class::pidSupported(uint8_t pid)
 {
+return true;  // oly
+
   if (pid == 0) {
     return true;
   }
@@ -607,15 +619,34 @@ float OBD2Class::pidRead(uint8_t pid)
 String OBD2Class::vinRead()
 {
   char vin[18];
-
   memset(vin, 0x00, sizeof(vin));
+
+  ESP_LOGI(LOGGING_TAG, "vinRead");
 
   if (!pidRead(0x09, 0x02, vin, 17)) {
     // failed
+    ESP_LOGE(LOGGING_TAG, "vinRead FAILED");
     return "";
   }
 
+  ESP_LOGI(LOGGING_TAG, "vinRead SUCCESS: %s", vin);
   return vin;
+}
+
+int OBD2Class::vinReadP(char *VIN, int VINlen)
+{
+  memset(VIN, 0x00, VINlen);
+
+  ESP_LOGI(LOGGING_TAG, "vinReadP");
+
+  if (!pidRead(0x09, 0x02, VIN, 17)) {
+    // failed
+    ESP_LOGE(LOGGING_TAG, "vinRead FAILED");
+    return 0;
+  }
+
+  ESP_LOGI(LOGGING_TAG, "vinRead SUCCESS: %s", VIN);
+  return sizeof(VIN);
 }
 
 uint32_t OBD2Class::pidReadRaw(uint8_t pid)
@@ -673,10 +704,13 @@ void OBD2Class::setTimeout(unsigned long timeout)
 
 int OBD2Class::supportedPidsRead()
 {
+  ESP_LOGI(LOGGING_TAG, "Read supported PIDs");  
+
   for (int pid = 0x00; pid < 0xe0; pid += 0x20) {
     uint8_t value[4];
 
     if (pidRead(0x01, pid, value, sizeof(value)) != 4) {
+      ESP_LOGE(LOGGING_TAG, "supportedPidsRead FAILED");       
       return 0;
     }
 
@@ -691,6 +725,7 @@ int OBD2Class::supportedPidsRead()
       break;
     }
   }
+  ESP_LOGI(LOGGING_TAG, "supportedPidsRead SUCCESS");
 
   return 1;
 }
@@ -707,9 +742,9 @@ int OBD2Class::clearAllStoredDTC()
 
     for (int retries = 10; retries > 0; retries--) {
         if (_useExtendedAddressing) {
-            CAN.beginExtendedPacket(0x18db33f1, 8);
+            CAN.beginExtendedPacket(OBD2_CAN29_BROADCAST_ID, 8); // 0x18db33f1
         } else {
-            CAN.beginPacket(0x7df, 8);
+            CAN.beginPacket(OBD2_CAN11_BROADCAST_ID, 8);         // 0x7df
         }
         CAN.write(0x00); // number of additional bytes
         CAN.write(0x04); // Mode / Service 4, for clearing DTC
@@ -729,14 +764,17 @@ int OBD2Class::pidRead(uint8_t mode, uint8_t pid, void* data, int length)
   // make sure at least 60 ms have passed since the last response
   unsigned long lastResponseDelta = millis() - _lastPidResponseMillis;
   if (lastResponseDelta < 60) {
-    delay(60 - lastResponseDelta);
+    delay(60 - lastResponseDelta);  //vTaskDelay(pdMS_TO_TICKS(PING_PERIOD_MS));
   }
 
+//  ESP_LOGI(LOGGING_TAG, "pidRead");
+  CAN.clearRXqueue();     // erstmal die Schlange leeren
+  
   for (int retries = 10; retries > 0; retries--) {
     if (_useExtendedAddressing) {
-      CAN.beginExtendedPacket(0x18db33f1, 8);
+      CAN.beginExtendedPacket(OBD2_CAN29_BROADCAST_ID, 8); // 0x18db33f1
     } else {
-      CAN.beginPacket(0x7df, 8);
+      CAN.beginPacket(OBD2_CAN11_BROADCAST_ID, 8);         // 0x7df
     }
     CAN.write(0x02); // number of additional bytes
     CAN.write(mode);
@@ -748,6 +786,7 @@ int OBD2Class::pidRead(uint8_t mode, uint8_t pid, void* data, int length)
       return 0;
     }
   }
+  ESP_LOGI(LOGGING_TAG, "pidRead request send SUCCESSFUL");
 
   bool splitResponse = (length > 5);
 
@@ -758,28 +797,48 @@ int OBD2Class::pidRead(uint8_t mode, uint8_t pid, void* data, int length)
 
       _lastPidResponseMillis = millis();
 
-      // got a response
+      // got response
+      ESP_LOGI(LOGGING_TAG, "pidRead - response from %03x", CAN.rxId());
+
       if (!splitResponse) {
+//        ESP_LOGI(LOGGING_TAG, "pidRead Response");        
         return CAN.readBytes((uint8_t*)data, length);
       }
+//      ESP_LOGI(LOGGING_TAG, "pidRead splitResponse");
 
-      int read = CAN.readBytes((uint8_t*)data, 3);
+/* 
+VIN (10 14 49 02 01 57 41 55)
+0x1014 which means extended message with a length of 0x14 = 20 bytes. 
+Then 0x49 means a reply to the 0x09 PID request and 0x02 is the PID that was requested. 
+0x01 is the number of data items.
+The start of the data follows.
+ */
+
+      int read = 0;
+      int nrOfDataItems = CAN.read();
+
+      if (nrOfDataItems != 1){                      // nr. of data items (sollte immer 1 sein)
+        ((uint8_t*)data)[read++] = nrOfDataItems;   // wenn doch nicht, dann fügen wir es mal ein.
+      }
+      read += CAN.readBytes((uint8_t*)data, 3);     // und jetzt die restlichen 3 bytes
 
       for (int i = 0; read < length; i++) {
-        delay(60);
+        delay(30);    // war: 60, ACK muss schneller kommen
 
-        // send the request for the next chunk
+        // send request for the next chunk
         if (_useExtendedAddressing) {
-          CAN.beginExtendedPacket(0x18db33f1, 8);
+          CAN.beginExtendedPacket(OBD2_CAN29_BROADCAST_ID, 8); // 0x18db33f1
         } else {
-          CAN.beginPacket(0x7df, 8);
+          CAN.beginPacket(CAN.rxId() -8, 8);  // so wird korrekt geantwortet
         }
-        CAN.write(0x30);
+        CAN.write(0x30);                      // 0x30 = ok, schick' mehr (flow-control)
+        CAN.write(0x01);                      // 0x01 = bitte nur einen weiteren Frame
         CAN.endPacket();
 
+//        ESP_LOGI(LOGGING_TAG, "wait for CAN Response");
+
         // wait for response
-        while (CAN.parsePacket() == 0 ||
-               CAN.read() != (0x21 + i)); // correct sequence number
+        while ((CAN.parsePacket() == 0) || (CAN.read() != (0x21 + i))); // correct sequence number
 
         while (CAN.available()) {
           ((uint8_t*)data)[read++] = CAN.read();
