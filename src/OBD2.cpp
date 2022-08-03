@@ -341,27 +341,35 @@ OBD2Class::~OBD2Class()
 
 int OBD2Class::begin()
 {
+/*  
+  // OBD is on top of CAN
+  // CAN is already running.
+
   if (!CAN.begin(500E3)) {
     ESP_LOGE(LOGGING_TAG, "unable to start CAN Driver");
     return 0;
   }
 
   ESP_LOGI(LOGGING_TAG, "CAN Driver installed");
+*/
 
   memset(_supportedPids, 0x00, sizeof(_supportedPids));
 
   // first try standard addressing
   ESP_LOGW(LOGGING_TAG, "try 11bit"); 
-  
   _useExtendedAddressing = false;
-//  CAN.filter(OBD2_CAN11_RECEIVING_ID, (0x7e8 ^ 0x7ec)); // smart antwort von 0x7ec
-  CAN.filter(OBD2_CAN11_RECEIVING_ID, 0x0f);      // antwort von 0x7e8 bis 0x7ef erlauben
+
+//  CAN.filter(OBD2_CAN11_RECEIVING_ID, (0x7e8 ^ 0x7ec));   // smart antwort von 0x7ec alle anderen auf 0x7e8
+  CAN.filter(OBD2_CAN11_RECEIVING_ID, 0x07);              // antwort von 0x7e8 bis 0x7ef erlauben
 
   if (!supportedPidsRead()) {
-    ESP_LOGW(LOGGING_TAG, "try 29bit");    
+
     // next try extended addressing
+    ESP_LOGW(LOGGING_TAG, "try 29bit");    
     _useExtendedAddressing = true;
-    CAN.filterExtended(OBD2_CAN29_RECEIVING_ID, 0);     // 0x18daf110
+
+    CAN.filterExtended(OBD2_CAN29_RECEIVING_ID, 0x0f);    // antwort von 0x18daf101 bus 0x18daf10f
+//    CAN.filterExtended(0, CAN_EXTD_ID_MASK);              // kein Filter
 
     if (!supportedPidsRead()) {
       return 0;
@@ -374,7 +382,9 @@ int OBD2Class::begin()
 
 void OBD2Class::end()
 {
-  CAN.end();
+  // OBD is on top of CAN
+
+  // CAN.end();   // uncomment to let CAN Stack active
 }
 
 bool OBD2Class::pidSupported(uint8_t pid)
@@ -641,11 +651,11 @@ int OBD2Class::vinReadP(char *VIN, int VINlen)
 
   if (!pidRead(0x09, 0x02, VIN, 17)) {
     // failed
-    ESP_LOGE(LOGGING_TAG, "vinRead FAILED");
+    ESP_LOGE(LOGGING_TAG, "vinReadP FAILED");
     return 0;
   }
 
-  ESP_LOGI(LOGGING_TAG, "vinRead SUCCESS: %s", VIN);
+  ESP_LOGI(LOGGING_TAG, "vinReadP SUCCESS: %s", VIN);
   return sizeof(VIN);
 }
 
@@ -813,7 +823,6 @@ Then 0x49 means a reply to the 0x09 PID request and 0x02 is the PID that was req
 0x01 is the number of data items.
 The start of the data follows.
  */
-
       int read = 0;
       int nrOfDataItems = CAN.read();
 
@@ -823,26 +832,32 @@ The start of the data follows.
       read += CAN.readBytes((uint8_t*)data, 3);     // und jetzt die restlichen 3 bytes
 
       for (int i = 0; read < length; i++) {
-        delay(30);    // war: 60, ACK muss schneller kommen
+        delay(30);                                  // war: 60, ACK muss schneller kommen
 
         // send request for the next chunk
         if (_useExtendedAddressing) {
-          CAN.beginExtendedPacket(OBD2_CAN29_BROADCAST_ID, 8); // 0x18db33f1
+          CAN.beginExtendedPacket(((CAN.rxId() & 0x000000ff) << 8) | OBD2_CAN29_PHYSICAL_REQUEST_FRAME, 8); // ergibt 0x18da01f1 (bei ECU01)
+ //          CAN.beginExtendedPacket(0x18da01f1, 8); // physical: 0x18da / an: 01 / von: f1 
         } else {
-          CAN.beginPacket(CAN.rxId() -8, 8);  // so wird korrekt geantwortet
+          CAN.beginPacket(CAN.rxId() -8, 8);        // so wird bei 11-bit korrekt geantwortet
         }
-        CAN.write(0x30);                      // 0x30 = ok, schick' mehr (flow-control)
-        CAN.write(0x01);                      // 0x01 = bitte nur einen weiteren Frame
+        
+        CAN.write(0x30);                            // 0x30 = ok, schick' mehr (flow-control)
+        CAN.write(0x01);                            // 0x01 = bitte nur einen weiteren Frame
+        CAN.write(0x00);                            // 0x00 = so schnell wie möglich
         CAN.endPacket();
 
 //        ESP_LOGI(LOGGING_TAG, "wait for CAN Response");
 
         // wait for response
-        while ((CAN.parsePacket() == 0) || (CAN.read() != (0x21 + i))); // correct sequence number
-
+        while ((CAN.parsePacket() == 0) || (CAN.read() != (0x21 + i))){   // waiting for correct sequence number
+          if ((millis() - start) > _responseTimeout){                     // timeout?
+            return 0;
+          }
+        }
         while (CAN.available()) {
           ((uint8_t*)data)[read++] = CAN.read();
-        }
+        }  
       }
 
       _lastPidResponseMillis = millis();
