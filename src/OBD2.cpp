@@ -372,6 +372,7 @@ int OBD2Class::begin()
 //    CAN.filterExtended(0, CAN_EXTD_ID_MASK);              // kein Filter
 
     if (!supportedPidsRead()) {
+      _useExtendedAddressing = false;                     // wieder auf 11bit zurückstellen
       return 0;
     }
   }
