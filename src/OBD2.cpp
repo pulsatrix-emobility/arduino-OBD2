@@ -384,8 +384,7 @@ int OBD2Class::begin()
 void OBD2Class::end()
 {
   // OBD is on top of CAN
-
-  // CAN.end();   // uncomment to let CAN Stack active
+  // CAN.end();   // uncomment to stop CAN stack
 }
 
 bool OBD2Class::pidSupported(uint8_t pid)
@@ -751,7 +750,7 @@ int OBD2Class::clearAllStoredDTC()
         delay(60 - lastResponseDelta);
     }
 
-    for (int retries = 10; retries > 0; retries--) {
+    for (int retries = 5; retries > 0; retries--) {
         if (_useExtendedAddressing) {
             CAN.beginExtendedPacket(OBD2_CAN29_BROADCAST_ID, 8); // 0x18db33f1
         } else {
@@ -781,7 +780,7 @@ int OBD2Class::pidRead(uint8_t mode, uint8_t pid, void* data, int length)
 //  ESP_LOGI(LOGGING_TAG, "pidRead");
   CAN.clearRXqueue();     // erstmal die Schlange leeren
   
-  for (int retries = 10; retries > 0; retries--) {
+  for (int retries = 4; retries > 0; retries--) {
     if (_useExtendedAddressing) {
       CAN.beginExtendedPacket(OBD2_CAN29_BROADCAST_ID, 8); // 0x18db33f1
     } else {

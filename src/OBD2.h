@@ -108,7 +108,7 @@ enum {
 };
 
 // default timeout for a response in milliseconds
-#define OBD2_DEFAULT_TIMEOUT 3000
+#define OBD2_DEFAULT_TIMEOUT 1500
 
 // broadcast IDs
 #define OBD2_CAN11_BROADCAST_ID 0x7df
@@ -145,10 +145,12 @@ public:
 
   int clearAllStoredDTC();
 
+  int pidRead(uint8_t mode, uint8_t pid, void* data, int length);
+  
 private:
   int supportedPidsRead();
 
-  int pidRead(uint8_t mode, uint8_t pid, void* data, int length);
+
 
 private:
   unsigned long _responseTimeout;
