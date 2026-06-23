@@ -112,9 +112,11 @@ enum {
 
 // broadcast IDs
 #define OBD2_CAN11_BROADCAST_ID 0x7df
+#define OBD2_CAN11_ECU01_ID     0x7e0         // Motorsteuergerät 01 (ECM/PCM, Powertrain), Sollte für VIN auslesen direkt angesprochen werden
 #define OBD2_CAN11_RECEIVING_ID 0x7e8         // response ID ECU01
 #define OBD2_CAN29_BROADCAST_ID 0x18db33f1    // 18db = functional; to 33 (OBD) from f1 (external test quipment)
-#define OBD2_CAN29_RECEIVING_ID 0x18daf101    // 18da = physical, to f1; from ECU 01
+#define OBD2_CAN29_ECU01_ID     0x18da10f1    // Motorsteuergerät 01 (ECM/PCM), Sollte für VIN auslesen direkt angesprochen werden
+#define OBD2_CAN29_RECEIVING_ID 0x18daf110    // 18da = physical, to f1; from ECU 10 (= ECU 01 in OBD/11)
 
 #define OBD2_CAN29_PHYSICAL_REQUEST_FRAME   0x18da00f1    // 18da = physical; to 00; from f1
 #define OBD2_CAN29_PHYSICAL_RESPONSE_FRAME  0x18daf100    // 18da = physical; to f1; from 00

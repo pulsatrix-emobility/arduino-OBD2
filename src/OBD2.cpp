@@ -779,13 +779,32 @@ int OBD2Class::pidRead(uint8_t mode, uint8_t pid, void* data, int length)
 
 //  ESP_LOGI(LOGGING_TAG, "pidRead");
   CAN.clearRXqueue();     // erstmal die Schlange leeren
-  
+
   for (int retries = 4; retries > 0; retries--) {
     if (_useExtendedAddressing) {
-      CAN.beginExtendedPacket(OBD2_CAN29_BROADCAST_ID, 8); // 0x18db33f1
+/*
+      if (mode == 0x09){
+        CAN.beginExtendedPacket(OBD2_CAN29_ECU01_ID, 8);      // 0x18da10f1 - direkt die ECU
+      }else{
+        CAN.beginExtendedPacket(OBD2_CAN29_BROADCAST_ID, 8);  // 0x18db33f1 - broadcast
+      }
+*/
+//CAN.beginExtendedPacket(OBD2_CAN29_ECU01_ID, 8);      // 0x18da10f1 - direkt die ECU
+CAN.beginExtendedPacket(OBD2_CAN29_BROADCAST_ID, 8);  // 0x18db33f1 - broadcast
+
     } else {
-      CAN.beginPacket(OBD2_CAN11_BROADCAST_ID, 8);         // 0x7df
+/*
+      if (mode == 0x09){
+        CAN.beginPacket(OBD2_CAN11_ECU01_ID, 8);             // 0x7e0 - direkt die ECU
+      }else{  
+        CAN.beginPacket(OBD2_CAN11_BROADCAST_ID, 8);         // 0x7df - broadcast
+      }
+*/
+//CAN.beginPacket(OBD2_CAN11_ECU01_ID, 8);             // 0x7e0 - direkt die ECU
+CAN.beginPacket(OBD2_CAN11_BROADCAST_ID, 8);         // 0x7df - broadcast
+
     }
+
     CAN.write(0x02); // number of additional bytes
     CAN.write(mode);
     CAN.write(pid);
